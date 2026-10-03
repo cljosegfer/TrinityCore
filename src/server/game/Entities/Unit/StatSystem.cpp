@@ -351,6 +351,70 @@ void Player::UpdateMaxPower(Powers power)
     SetMaxPower(power, (int32)std::lroundf(value));
 }
 
+// Classic 1.60: vanilla attack power from strength and agility (VMaNGOS Unit::GetAttackPowerFromStrengthAndAgility). The retail
+// ChrClasses ratios have no level terms and no -20/-10 base, so a level 4 druid had 40 attack power instead of 20.
+// Classes that did not exist in vanilla keep the retail ratios.
+static Optional<float> GetClassicAttackPower(Player const* player, bool ranged)
+{
+    float level = float(player->GetLevel());
+    float strength = player->GetStat(STAT_STRENGTH);
+    float agility = player->GetStat(STAT_AGILITY);
+    ShapeshiftForm form = player->GetShapeshiftForm();
+    bool feralForm = form == FORM_CAT_FORM || form == FORM_BEAR_FORM || form == FORM_DIRE_BEAR_FORM;
+
+    float value;
+    switch (player->GetClass())
+    {
+        case CLASS_WARRIOR:
+            value = ranged ? level + agility - 10.0f : level * 3.0f + strength * 2.0f - 20.0f;
+            break;
+        case CLASS_PALADIN:
+            value = ranged ? agility - 10.0f : level * 3.0f + strength * 2.0f - 20.0f;
+            break;
+        case CLASS_ROGUE:
+            value = ranged ? level + agility - 10.0f : level * 2.0f + strength + agility - 20.0f;
+            break;
+        case CLASS_HUNTER:
+            value = ranged ? level * 2.0f + agility * 2.0f - 10.0f : level * 2.0f + strength + agility - 20.0f;
+            break;
+        case CLASS_SHAMAN:
+            value = ranged ? agility - 10.0f : level * 2.0f + strength * 2.0f - 20.0f;
+            break;
+        case CLASS_DRUID:
+            if (ranged)
+                value = feralForm ? 0.0f : agility - 10.0f;
+            else
+            {
+                value = strength * 2.0f - 20.0f;
+                if (form == FORM_CAT_FORM)
+                    value += agility;
+
+                // Predatory Strikes (16972, vanilla ranks 16974 and 16975): a percentage of the level in Cat, Bear and Dire Bear Form
+                if (feralForm)
+                {
+                    for (AuraEffect const* dummy : player->GetAuraEffectsByType(SPELL_AURA_DUMMY))
+                    {
+                        if (dummy->GetId() == 16972 || dummy->GetId() == 16974 || dummy->GetId() == 16975)
+                        {
+                            value += level * float(dummy->GetAmount()) / 100.0f;
+                            break;
+                        }
+                    }
+                }
+            }
+            break;
+        case CLASS_MAGE:
+        case CLASS_PRIEST:
+        case CLASS_WARLOCK:
+            value = ranged ? agility - 10.0f : strength - 10.0f;
+            break;
+        default:
+            return {};
+    }
+
+    return std::max(value, 0.0f);
+}
+
 void Player::UpdateAttackPowerAndDamage(bool ranged)
 {
     float val2 = 0.0f;
@@ -361,7 +425,9 @@ void Player::UpdateAttackPowerAndDamage(bool ranged)
 
     if (!HasAuraType(SPELL_AURA_OVERRIDE_ATTACK_POWER_BY_SP_PCT))
     {
-        if (!ranged)
+        if (Optional<float> classicAttackPower = GetClassicAttackPower(this, ranged))
+            val2 = *classicAttackPower;
+        else if (!ranged)
         {
             float strengthValue = std::max(GetStat(STAT_STRENGTH) * entry->AttackPowerPerStrength, 0.0f);
             float agilityValue = std::max(GetStat(STAT_AGILITY) * entry->AttackPowerPerAgility, 0.0f);
