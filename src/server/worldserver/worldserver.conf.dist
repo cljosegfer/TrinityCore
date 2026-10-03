@@ -4465,3 +4465,11 @@ Recap.Announce = 3
 #                     1 - (Enabled)
 
 Classic.GuildFinder = 0
+
+#    Classic.AccountSecured
+#        Description: Treat every account as secured (as if an authenticator were attached): characters get
+#                     the 4 extra backpack slots that the client otherwise shows as locked.
+#        Default:     1 - (Enabled)
+#                     0 - (Disabled)
+
+Classic.AccountSecured = 1
